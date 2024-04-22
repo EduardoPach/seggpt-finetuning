@@ -1,6 +1,7 @@
 # weights and biases and logs
 wandb
 output
+seggpt-foodseg103-adapter
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

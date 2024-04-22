@@ -41,12 +41,14 @@ def train_seggpt_adapter(training_args: TrainingArguments, data_args: DataTraini
 
 def main() -> None:
     os.environ["WANDB_PROJECT"] = "seggpt-incontext-tuning"
-    parser = HfArgumentParser((TrainingArguments, DataTrainingArguments))
 
-    if len(sys.argv) == 2 and sys.argv[1].endswith(".yaml"):
-        training_args, data_args = parser.parse_yaml_file(yaml_file=os.path.abspath(sys.argv[1]))
-    else:
-        training_args, data_args = parser.parse_args_into_dataclasses()
+    parser = HfArgumentParser((TrainingArguments, DataTrainingArguments))
+    path = "src/config/config_adapter.yaml"
+    training_args, data_args = parser.parse_yaml_file(yaml_file=os.path.abspath(path))
+    # if len(sys.argv) == 2 and sys.argv[1].endswith(".yaml"):
+    #     training_args, data_args = parser.parse_yaml_file(yaml_file=os.path.abspath(sys.argv[1]))
+    # else:
+    #     training_args, data_args = parser.parse_args_into_dataclasses()
 
     train_seggpt_adapter(training_args, data_args)
 
