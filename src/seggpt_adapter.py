@@ -33,7 +33,8 @@ class SegGptAdapter(nn.Module, PyTorchModelHubMixin):
 
     def forward(
         self, 
-        pixel_values: torch.FloatTensor, 
+        pixel_values: torch.FloatTensor,
+        labels: Optional[torch.LongTensor] = None, 
         bool_masked_pos: Optional[torch.BoolTensor] = None,
         **kwargs
     ) -> SegGptImageSegmentationOutput:
@@ -48,6 +49,7 @@ class SegGptAdapter(nn.Module, PyTorchModelHubMixin):
             prompt_pixel_values=image_prompt_tensor,
             prompt_masks=prompt_mask_tensor,
             bool_masked_pos=bool_masked_pos,
+            labels=labels,
             **kwargs
         )
 
