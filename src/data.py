@@ -6,8 +6,8 @@ from typing import List, Tuple, Dict, Any, Optional, Union
 import torch
 import numpy as np
 from PIL import Image
-from datasets import load_dataset
-from torch.utils.data import Dataset
+from datasets import load_dataset, Dataset
+from torch.utils.data import Dataset as PyTorchDataset
 from huggingface_hub import hf_hub_download
 from transformers import SegGptImageProcessor, SegGptConfig
 
@@ -94,6 +94,20 @@ class TransformInContextTuning:
             "bool_masked_pos": bool_masked_pos
         }
     
+
+def get_datasets(config, image_processor, mask_ratio=0.75, random_coloring=True) -> Tuple[Dataset, Dataset]:
+    """Returns the training and validation datasets for the FoodSeg103 dataset with their respective transformations."""
+    transform_train = TransformInContextTuning(config, image_processor, mask_ratio, random_coloring, is_train=True)
+    transform_val = TransformInContextTuning(config, image_processor, mask_ratio, random_coloring, is_train=False)
+
+    ds_train = load_foodseg103("train")
+    ds_val = load_foodseg103("validation")
+
+    ds_train.set_transform(transform_train)
+    ds_val.set_transform(transform_val)
+
+    return ds_train, ds_val
+    
 class FoodSegLabelMapper:
     """Converts between label ids and labels for the FoodSeg103 dataset."""
     def __init__(self) -> None:
@@ -114,7 +128,7 @@ class FoodSegLabelMapper:
         return self.label2id[label]
 
 #TODO finish this
-class FoodSegDataset(Dataset):
+class FoodSegDataset(PyTorchDataset):
     """
     Dataset for FoodSeg103 for fine-tuning SegGPT using the Hugging Face datasets library.
     """

@@ -11,8 +11,8 @@ class SegGptAdapter(nn.Module, PyTorchModelHubMixin):
         super(SegGptAdapter, self).__init__()
         self.seggpt = SegGptForImageSegmentation.from_pretrained(model_path)
         # height is actually 2x the image height
-        height, width = self.model.config.image_size
-        num_channels = self.model.config.num_channels
+        height, width = self.seggpt.config.image_size
+        num_channels = self.seggpt.config.num_channels
 
         # I'm halving the height because the height in config is actually 2x the image height
         # Image prompt is concataned with input image inside the HF implementation
