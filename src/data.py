@@ -1,7 +1,7 @@
 import json
 import math
 import itertools
-from typing import List, Tuple, Dict, Any, Optional
+from typing import List, Tuple, Dict, Any, Optional, Union
 
 import torch
 import numpy as np
@@ -10,7 +10,6 @@ from datasets import load_dataset
 from torch.utils.data import Dataset
 from huggingface_hub import hf_hub_download
 from transformers import SegGptImageProcessor, SegGptConfig
-from torchvision.transforms import Compose, ToTensor, Normalize
 
 DATASET_ID = "EduardoPacheco/FoodSeg103"
 NUM_CLASSES = 104 # 103 classes + 1 background class
@@ -25,7 +24,7 @@ def get_foodseg103_id2label() -> Dict[int, str]:
     id2label = json.load(open(hf_hub_download(DATASET_ID, "id2label.json", repo_type="dataset"), "r"))
     return {int(k): v for k, v in id2label.items()}
 
-def random_color_palette(indicies: List[int]) -> Dict[int, np.array]:
+def random_color_palette(indicies: Union[List[int], np.array]) -> Dict[int, np.array]:
     """Generates a random color palette for coloring masks."""
     palette = {}
     for idx in indicies:
@@ -36,6 +35,8 @@ def mask_coloring(mask: Image.Image, palette: Optional[Dict[int, np.array]]=None
     """Colorizes the mask using a palette."""
     mask_array = np.array(mask)
     classes = np.unique(mask_array)
+    if palette is None:
+        palette = random_color_palette(classes)
     colored_mask = np.zeros((mask_array.shape[0], mask_array.shape[1], 3), dtype=np.uint8)
     for cls in classes:
         # Skip the background class as it should be black
@@ -55,41 +56,44 @@ def random_masking(num_patches: int, mask_ratio: float = 0.75, is_train:Optional
     shuffle_idx = torch.randperm(num_patches)
     mask = torch.FloatTensor([0] * (num_patches - num_masked_patches) + [1] * num_masked_patches)[shuffle_idx]
 
-    return mask
+    return mask.unsqueeze(0)
 
-def load_foodseg103_for_incontext_tuning(
-    config: SegGptConfig, 
-    image_processor: SegGptImageProcessor,
-    split: str = "train",
-    mask_ratio: float = 0.75,
-    random_coloring: bool = True
-) -> Dataset:
-    """Loads the FoodSeg103 dataset for in-context tuning using the Hugging Face datasets library."""
-    ds = load_dataset(DATASET_ID, split=split)
-    num_patches = math.prod(i // config.patch_size for i in config.image_size)
-    is_train = split == "train"
+class TransformInContextTuning:
+    def __init__(
+        self,
+        config: SegGptConfig,
+        image_processor: SegGptImageProcessor,
+        mask_ratio: float = 0.75,
+        random_coloring: bool = True,
+        is_train: bool = True
+    ) -> None:
+        self.config = config
+        self.image_processor = image_processor
+        self.mask_ratio = mask_ratio
+        self.random_coloring = random_coloring
+        self.is_train = is_train
+    
+    def __call__(self, example: Dict[str, Any]) -> Dict[str, Any]:
+        num_patches = math.prod(i // self.config.patch_size for i in self.config.image_size)
+        bool_masked_pos = random_masking(num_patches, mask_ratio=self.mask_ratio, is_train=self.is_train)
 
-    if random_coloring:
-        to_tensor = ToTensor()
+        labels = example["label"][0]
+        image = example["image"][0]
 
-        return ds.map(lambda example: {
-            "labels": to_tensor(mask_coloring(example["label"])),
-            "pixel_values": image_processor(images=example["image"])["pixel_values"],
-            "bool_masked_pos": random_masking(num_patches, mask_ratio=mask_ratio, is_train=is_train)
-            }
+        # SegGptImageProcessor won't try to conver the mask to rgb if the mask is already in rgb
+        inputs = self.image_processor(
+            images=image, 
+            prompt_masks=mask_coloring(labels) if self.random_coloring else labels, 
+            num_labels=NUM_CLASSES - 1, 
+            return_tensors="pt"
         )
-    
-    return ds.map(lambda example: {
-        "labels": image_processor(images=None, prompt_masks=example["label"], num_labels=NUM_CLASSES - 1)["prompt_masks"],
-        "pixel_values": image_processor(images=example["image"])["pixel_values"],
-        "bool_masked_pos": random_masking(num_patches, mask_ratio=mask_ratio, is_train=is_train)
+
+        return {
+            "pixel_values": inputs["pixel_values"],
+            "labels": inputs["prompt_masks"],
+            "bool_masked_pos": bool_masked_pos
         }
-    )
     
-
-
-
-
 class FoodSegLabelMapper:
     """Converts between label ids and labels for the FoodSeg103 dataset."""
     def __init__(self) -> None:
@@ -116,9 +120,9 @@ class FoodSegDataset(Dataset):
     """
     def __init__(
         self, 
-        split: str,
         config: SegGptConfig,
         image_processor: SegGptImageProcessor, 
+        split: str = "train",
         mask_ratio: float = 0.75,
         transform=None
     ) -> None:
@@ -167,3 +171,15 @@ class FoodSegDataset(Dataset):
         if self.transform:
             sample = self.transform(sample)
         return sample
+    
+
+if __name__ == "__main__":
+    config = SegGptConfig.from_pretrained("BAAI/seggpt-vit-large")
+    image_processor = SegGptImageProcessor.from_pretrained("BAAI/seggpt-vit-large")
+    transform_train = TransformInContextTuning(config, image_processor)
+
+    ds_train = load_foodseg103("train")
+    ds_train.set_transform(transform_train)
+    sample = ds_train[0]
+
+    print(sample)
