@@ -1,0 +1,3 @@
+git+https://github.com/huggingface/transformers.git
+datasets
+huggingface_hub
