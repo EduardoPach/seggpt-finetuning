@@ -108,6 +108,18 @@ def get_datasets(config, image_processor, mask_ratio=0.75, random_coloring=True)
 
     return ds_train, ds_val
     
+
+def collate_fn(batch: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Collate function for the DataLoader."""
+    pixel_values = torch.stack([sample["pixel_values"] for sample in batch])
+    labels = torch.stack([sample["labels"] for sample in batch])
+    bool_masked_pos = torch.stack([sample["bool_masked_pos"] for sample in batch])
+
+    return {
+        "pixel_values": pixel_values,
+        "labels": labels,
+        "bool_masked_pos": bool_masked_pos
+    }
 class FoodSegLabelMapper:
     """Converts between label ids and labels for the FoodSeg103 dataset."""
     def __init__(self) -> None:
