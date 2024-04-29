@@ -1,9 +1,11 @@
 output_dir: ./seggpt-foodseg103-adapter
 remove_unused_columns: false
-per_device_train_batch_size: 8
-per_device_eval_batch_size: 8
+per_device_train_batch_size: 16
+per_device_eval_batch_size: 16
+dataloader_num_workers: 4
+dataloader_prefetch_factor: 1
 num_train_epochs: 5
-report_to: none
+report_to: wandb
 push_to_hub: true
 mask_ratio: 0.75
 random_coloring: false
