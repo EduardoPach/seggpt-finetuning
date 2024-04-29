@@ -1,6 +1,9 @@
 import json
 import math
+import random
 import itertools
+from collections import defaultdict
+from dataclasses import dataclass, field
 from typing import List, Tuple, Dict, Any, Optional, Union
 
 import torch
@@ -14,6 +17,10 @@ from transformers import SegGptImageProcessor, SegGptConfig
 DATASET_ID = "EduardoPacheco/FoodSeg103"
 NUM_CLASSES = 104 # 103 classes + 1 background class
 
+@dataclass
+class DataTrainingArguments:
+    mask_ratio: float = field(default=0.75)
+    random_coloring: bool = field(default=True)
 
 def load_foodseg103(split: str) -> Dataset:
     """Loads the FoodSeg103 dataset using the Hugging Face datasets library."""
@@ -27,8 +34,15 @@ def get_foodseg103_id2label() -> Dict[int, str]:
 def random_color_palette(indicies: Union[List[int], np.array]) -> Dict[int, np.array]:
     """Generates a random color palette for coloring masks."""
     palette = {}
+    used_colors = set()  # Keep track of used colors
+
     for idx in indicies:
-        palette[idx] = np.random.randint(0, 256, 3)
+        color = np.random.randint(0, 256, 3)  # Generate a random color
+        while tuple(color) == (0, 0, 0) or tuple(color) in used_colors:  # Check if color is (0, 0, 0) or already used
+            color = np.random.randint(0, 256, 3)  # Generate a new color
+        palette[idx] = color
+        used_colors.add(tuple(color))  # Add color to used colors set
+
     return palette
 
 def mask_coloring(mask: Image.Image, palette: Optional[Dict[int, np.array]]=None) -> Image.Image:
@@ -58,6 +72,85 @@ def random_masking(num_patches: int, mask_ratio: float = 0.75, is_train:Optional
 
     return mask.unsqueeze(0)
 
+class TransformFineTuning:
+    def __init__(
+        self,
+        ds: Dataset,
+        config: SegGptConfig,
+        image_processor: SegGptImageProcessor,
+        mask_ratio: float = 0.75,
+        random_coloring: bool = True,
+        is_train: bool = True,
+        pair_mapping: Optional[Dict[int, List[int]]] = None
+    ) -> None:
+        self.ds = ds
+        self.config = config
+        self.image_processor = image_processor
+        self.mask_ratio = mask_ratio
+        self.random_coloring = random_coloring
+        self.is_train = is_train
+        self.pair_mapping = pair_mapping if pair_mapping else self._set_pairs()
+
+    def _set_pairs(self) -> None:
+        classes = [set(cls) for cls in self.ds["classes_on_image"]]
+        ids = self.ds["id"]
+
+        pairs = itertools.combinations(ids, 2)
+
+        # To be a valid pair should have at least one class in common
+        pairs_mapping = defaultdict(list)
+        for i, j in pairs:
+            intersection = classes[i].intersection(classes[j])
+            if len(intersection) > 0:
+                pairs_mapping[i].append(j)
+                pairs_mapping[j].append(i)
+        
+        return pairs_mapping
+
+
+    def __call__(self, example: List[Dict[str, Any]]) -> Dict[str, Any]:
+        num_patches = math.prod(i // self.config.patch_size for i in self.config.image_size)
+        bool_masked_pos = random_masking(num_patches, mask_ratio=self.mask_ratio, is_train=self.is_train)
+
+        sample_id = example["id"][0]
+        pair_id = random.choice(self.pair_mapping[sample_id])
+
+        labels = example["label"][0]
+        image = example["image"][0]
+
+        prompt_image = self.ds[pair_id]["image"]
+        prompt_mask = self.ds[pair_id]["label"]
+
+        if self.random_coloring:
+            palette = random_color_palette(list(range(1, NUM_CLASSES)))
+            prompt_mask = mask_coloring(prompt_mask, palette)
+            labels = mask_coloring(labels, palette)
+
+        inputs = self.image_processor(
+            images=image, 
+            prompt_masks=prompt_mask,
+            prompt_images=prompt_image,
+            num_labels=NUM_CLASSES - 1,
+            do_convert_rgb=not self.random_coloring, 
+            return_tensors="pt"
+        )
+
+        labels_inputs = self.image_processor(
+            images=None,
+            prompt_masks=labels,
+            num_labels=NUM_CLASSES - 1,
+            do_convert_rgb=not self.random_coloring,
+            return_tensors="pt"
+        )
+
+        return {
+            "pixel_values": inputs["pixel_values"],
+            "prompt_pixel_values": inputs["prompt_pixel_values"],
+            "prompt_masks": inputs["prompt_masks"],
+            "labels": labels_inputs["prompt_masks"],
+            "bool_masked_pos": bool_masked_pos
+        }
+
 class TransformInContextTuning:
     def __init__(
         self,
@@ -73,18 +166,18 @@ class TransformInContextTuning:
         self.random_coloring = random_coloring
         self.is_train = is_train
     
-    def __call__(self, example: Dict[str, Any]) -> Dict[str, Any]:
+    def __call__(self, example: List[Dict[str, Any]]) -> Dict[str, Any]:
         num_patches = math.prod(i // self.config.patch_size for i in self.config.image_size)
         bool_masked_pos = random_masking(num_patches, mask_ratio=self.mask_ratio, is_train=self.is_train)
 
         labels = example["label"][0]
         image = example["image"][0]
 
-        # SegGptImageProcessor won't try to conver the mask to rgb if the mask is already in rgb
         inputs = self.image_processor(
             images=image, 
             prompt_masks=mask_coloring(labels) if self.random_coloring else labels, 
             num_labels=NUM_CLASSES - 1, 
+            do_convert_rgb=not self.random_coloring,
             return_tensors="pt"
         )
 
@@ -95,13 +188,29 @@ class TransformInContextTuning:
         }
     
 
-def get_datasets(config, image_processor, mask_ratio=0.75, random_coloring=True) -> Tuple[Dataset, Dataset]:
+def get_in_context_datasets(config, image_processor, mask_ratio=0.75, random_coloring=True) -> Tuple[Dataset, Dataset]:
     """Returns the training and validation datasets for the FoodSeg103 dataset with their respective transformations."""
+    ds_train = load_foodseg103("train")
+    ds_val = load_foodseg103("validation")
+
     transform_train = TransformInContextTuning(config, image_processor, mask_ratio, random_coloring, is_train=True)
     transform_val = TransformInContextTuning(config, image_processor, mask_ratio, random_coloring, is_train=False)
 
+    ds_train.set_transform(transform_train)
+    ds_val.set_transform(transform_val)
+
+    return ds_train, ds_val
+
+def get_fine_tuning_datasets(config, image_processor, mask_ratio=0.75, random_coloring=True) -> Tuple[Dataset, Dataset]:
+    """Returns the training and validation datasets for the FoodSeg103 dataset with their respective transformations."""
     ds_train = load_foodseg103("train")
+    train_dummy = load_foodseg103("train") # Need the dummy otherwise will recurse infinitely
+
     ds_val = load_foodseg103("validation")
+    val_dummy = load_foodseg103("validation") # Need the dummy otherwise will recurse infinitely
+
+    transform_train = TransformFineTuning(train_dummy, config, image_processor, mask_ratio, random_coloring, is_train=True)
+    transform_val = TransformFineTuning(val_dummy, config, image_processor, mask_ratio, random_coloring, is_train=False)
 
     ds_train.set_transform(transform_train)
     ds_val.set_transform(transform_val)
@@ -138,74 +247,3 @@ class FoodSegLabelMapper:
     
     def get_id(self, label: str) -> int:
         return self.label2id[label]
-
-#TODO finish this
-class FoodSegDataset(PyTorchDataset):
-    """
-    Dataset for FoodSeg103 for fine-tuning SegGPT using the Hugging Face datasets library.
-    """
-    def __init__(
-        self, 
-        config: SegGptConfig,
-        image_processor: SegGptImageProcessor, 
-        split: str = "train",
-        mask_ratio: float = 0.75,
-        transform=None
-    ) -> None:
-        self.split = split
-        self.config = config
-        self.transform = transform
-        self.dataset_id = DATASET_ID
-        self.mask_ratio = mask_ratio
-        self.is_train = split == 'train'
-        self.image_processor = image_processor
-
-        self.ds = load_dataset(self.dataset_id, split=self.split)
-        self.pairs = self.set_image_pairs()
-
-    def set_image_pairs(self) -> List[Tuple[int, int]]:
-        classes = [set(cls) for cls in self.ds["classes_on_image"]]
-        indicies = list(range(len(classes)))
-
-        # When training combine and then add randomness to swap the order
-        # When evaluating get all possible pairs for robust evaluation
-        if self.is_train:
-            pairs = itertools.combinations(indicies, 2)
-        else: 
-            pairs = itertools.permutations(indicies, 2)
-
-        # To be a valid pair should have at least one class in common
-        valid_pairs = []
-        for i, j in pairs:
-            intersection = classes[i].intersection(classes[j])
-            if len(intersection) > 0:
-                valid_pairs.append((i, j))
-        
-        return valid_pairs
-    
-    def random_masking(self) -> torch.BoolTensor:
-        ...
-
-    def random_coloring(self, mask) -> Tuple[Image.Image, Image.Image]:
-        ...
-
-    def __len__(self) -> int:
-        return len(self.pairs)
-
-    def __getitem__(self, idx: int) -> Dict[str, Any]:
-        sample = self.data[idx]
-        if self.transform:
-            sample = self.transform(sample)
-        return sample
-    
-
-if __name__ == "__main__":
-    config = SegGptConfig.from_pretrained("BAAI/seggpt-vit-large")
-    image_processor = SegGptImageProcessor.from_pretrained("BAAI/seggpt-vit-large")
-    transform_train = TransformInContextTuning(config, image_processor)
-
-    ds_train = load_foodseg103("train")
-    ds_train.set_transform(transform_train)
-    sample = ds_train[0]
-
-    print(sample)
