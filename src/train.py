@@ -8,7 +8,7 @@ from transformers import (
     SegGptForImageSegmentation
 )
 
-from data import get_fine_tuning_datasets, collate_fn, DataTrainingArguments
+from data import get_fine_tuning_datasets, DataTrainingArguments
 
 def train_seggpt_adapter(training_args: TrainingArguments, data_args: DataTrainingArguments) -> None:
     """Trains the SegGptAdapter model."""
@@ -29,7 +29,6 @@ def train_seggpt_adapter(training_args: TrainingArguments, data_args: DataTraini
         args=training_args,
         train_dataset=train_dataset,
         eval_dataset=validation_dataset,
-        data_collator=collate_fn,
     )
 
     trainer.train()

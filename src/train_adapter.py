@@ -4,7 +4,7 @@ import sys
 from transformers import Trainer, TrainingArguments, AutoImageProcessor, HfArgumentParser
 
 from seggpt_adapter import SegGptAdapter
-from data import get_in_context_datasets, collate_fn, DataTrainingArguments
+from data import get_in_context_datasets, DataTrainingArguments
 
 def train_seggpt_adapter(training_args: TrainingArguments, data_args: DataTrainingArguments) -> None:
     """Trains the SegGptAdapter model."""
@@ -26,7 +26,6 @@ def train_seggpt_adapter(training_args: TrainingArguments, data_args: DataTraini
         args=training_args,
         train_dataset=train_dataset,
         eval_dataset=validation_dataset,
-        data_collator=collate_fn,
     )
 
     trainer.train()

@@ -61,16 +61,13 @@ def mask_coloring(mask: Image.Image, palette: Optional[Dict[int, np.array]]=None
     
     return Image.fromarray(colored_mask)
 
-def random_masking(num_patches: int, mask_ratio: float = 0.75, is_train:Optional[bool] = None) -> torch.BoolTensor:
+def random_masking(num_patches: int, mask_ratio: float = 0.75) -> torch.BoolTensor:
     """Generates a random booled mask with a given ratio of masked patches with shape (num_patches,)."""
-    if not is_train:
-        return None
-    
     num_masked_patches = int(num_patches * mask_ratio)
     shuffle_idx = torch.randperm(num_patches)
     mask = torch.FloatTensor([0] * (num_patches - num_masked_patches) + [1] * num_masked_patches)[shuffle_idx]
 
-    return mask.unsqueeze(0)
+    return mask
 
 class TransformFineTuning:
     def __init__(
@@ -108,28 +105,33 @@ class TransformFineTuning:
         return pairs_mapping
 
 
-    def __call__(self, example: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def __call__(self, example: Dict[str, List[Any]]) -> Dict[str, List[Any]]:
         num_patches = math.prod(i // self.config.patch_size for i in self.config.image_size)
-        bool_masked_pos = random_masking(num_patches, mask_ratio=self.mask_ratio, is_train=self.is_train)
 
-        sample_id = example["id"][0]
-        pair_id = random.choice(self.pair_mapping[sample_id])
+        sample_ids = example["id"]
+        pair_ids = [random.choice(self.pair_mapping[sample_id]) for sample_id in sample_ids]
 
-        labels = example["label"][0]
-        image = example["image"][0]
+        labels = example["label"]
+        images = example["image"]
 
-        prompt_image = self.ds[pair_id]["image"]
-        prompt_mask = self.ds[pair_id]["label"]
+        batch_size = len(images)
+        bool_masked_pos = None
+        if self.is_train:
+            bool_masked_pos = [random_masking(num_patches, mask_ratio=self.mask_ratio) for _ in range(batch_size)]
+            bool_masked_pos = torch.stack(bool_masked_pos)
+
+        prompt_images = self.ds[pair_ids]["image"]
+        prompt_masks = self.ds[pair_ids]["label"]
 
         if self.random_coloring:
             palette = random_color_palette(list(range(1, NUM_CLASSES)))
-            prompt_mask = mask_coloring(prompt_mask, palette)
-            labels = mask_coloring(labels, palette)
+            prompt_masks = [mask_coloring(prompt_mask, palette) for prompt_mask in prompt_masks]
+            labels = [mask_coloring(label, palette) for label in labels]
 
         inputs = self.image_processor(
-            images=image, 
-            prompt_masks=prompt_mask,
-            prompt_images=prompt_image,
+            images=images, 
+            prompt_masks=prompt_masks,
+            prompt_images=prompt_images,
             num_labels=NUM_CLASSES - 1,
             do_convert_rgb=not self.random_coloring, 
             return_tensors="pt"
@@ -166,15 +168,21 @@ class TransformInContextTuning:
         self.random_coloring = random_coloring
         self.is_train = is_train
     
-    def __call__(self, example: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def __call__(self, example: Dict[str, List[Any]]) -> Dict[str, List[Any]]:
         num_patches = math.prod(i // self.config.patch_size for i in self.config.image_size)
-        bool_masked_pos = random_masking(num_patches, mask_ratio=self.mask_ratio, is_train=self.is_train)
 
-        labels = example["label"][0]
-        image = example["image"][0]
+        labels = example["label"]
+        images = example["image"]
+
+        batch_size = len(images)
+
+        bool_masked_pos = None
+        if self.is_train:
+            bool_masked_pos = [random_masking(num_patches, mask_ratio=self.mask_ratio) for _ in range(batch_size)]
+            bool_masked_pos = torch.stack(bool_masked_pos)
 
         inputs = self.image_processor(
-            images=image, 
+            images=images, 
             prompt_masks=mask_coloring(labels) if self.random_coloring else labels, 
             num_labels=NUM_CLASSES - 1, 
             do_convert_rgb=not self.random_coloring,
@@ -217,18 +225,6 @@ def get_fine_tuning_datasets(config, image_processor, mask_ratio=0.75, random_co
 
     return ds_train, ds_val
     
-
-def collate_fn(batch: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """Collate function for the DataLoader."""
-    pixel_values = torch.stack([sample["pixel_values"] for sample in batch])
-    labels = torch.stack([sample["labels"] for sample in batch])
-    bool_masked_pos = torch.stack([sample["bool_masked_pos"] for sample in batch])
-
-    return {
-        "pixel_values": pixel_values,
-        "labels": labels,
-        "bool_masked_pos": bool_masked_pos
-    }
 class FoodSegLabelMapper:
     """Converts between label ids and labels for the FoodSeg103 dataset."""
     def __init__(self) -> None:
@@ -247,3 +243,19 @@ class FoodSegLabelMapper:
     
     def get_id(self, label: str) -> int:
         return self.label2id[label]
+    
+if __name__ == "__main__":
+    ds_train = load_foodseg103("train")
+    train_dummy = load_foodseg103("train") # Need the dummy otherwise will recurse infinitely
+
+    transforms = TransformFineTuning(
+        train_dummy, 
+        SegGptConfig.from_pretrained("BAAI/seggpt-vit-large"), 
+        SegGptImageProcessor.from_pretrained("BAAI/seggpt-vit-large"),
+        mask_ratio=0.75,
+        random_coloring=True,
+        is_train=True
+    )
+
+    ds_train.set_transform(transforms)
+
