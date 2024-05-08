@@ -6,7 +6,7 @@ import torch
 from datasets import Dataset
 from transformers import SegGptImageProcessor, SegGptConfig
 
-from src.data.utils import (
+from data.utils import (
     NUM_CLASSES,
     load_foodseg103,
     random_masking,
