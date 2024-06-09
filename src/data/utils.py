@@ -16,11 +16,7 @@ class DataTrainingArguments:
     mask_ratio: float = field(default=0.75)
     random_coloring: bool = field(default=True)
     num_pairs_per_image: Optional[int] = field(default=None)
-    # train_batch_size: int = field(default=8)
-    # validation_batch_size: int = field(default=8)
-    # num_workers: int = field(default=4)
-    # pin_memory: bool = field(default=True)
-    # num_epochs: int = field(default=1)
+    num_samples: Optional[int] = field(default=None)
 
 def load_foodseg103(split: str) -> Dataset:
     """Loads the FoodSeg103 dataset using the Hugging Face datasets library."""

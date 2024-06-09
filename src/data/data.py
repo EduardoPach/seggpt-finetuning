@@ -1,5 +1,7 @@
 import math
+import random
 import itertools
+from collections import defaultdict
 from typing import List, Tuple, Dict, Optional
 
 import torch
@@ -24,9 +26,11 @@ class FoodSeg103InContextDataset(torch.utils.data.Dataset):
         image_processor: SegGptImageProcessor,
         mask_ratio: float = 0.75,
         random_coloring: bool = True,
-        is_train: bool = True
+        is_train: bool = True,
+        num_samples: Optional[int] = None,
+        **kwargs
     ) -> None:
-        self.dataset = dataset
+        self.dataset = dataset if num_samples is None else dataset.select(range(num_samples))
         self.config = config
         self.image_processor = image_processor
         self.mask_ratio = mask_ratio
@@ -75,8 +79,10 @@ class FoodSeg103Dataset(torch.utils.data.Dataset):
         image_processor: SegGptImageProcessor,
         mask_ratio: float = 0.75,
         random_coloring: bool = True,
+        is_train: bool = True,
+        seed: Optional[int] = None,
         num_pairs_per_image: Optional[int] = None,
-        is_train: bool = True
+        num_samples: Optional[int] = None
     ) -> None:
         self.dataset = dataset
         self.config = config
@@ -84,7 +90,9 @@ class FoodSeg103Dataset(torch.utils.data.Dataset):
         self.mask_ratio = mask_ratio
         self.random_coloring = random_coloring
         self.is_train = is_train
-        self.num_pairs_per_image = num_pairs_per_image
+        self.seed = seed
+        self.num_pairs_per_image = num_pairs_per_image if num_pairs_per_image is not None else float("inf")
+        self.num_samples = num_samples
 
         self.pairs = self.get_pairs()
 
@@ -93,11 +101,31 @@ class FoodSeg103Dataset(torch.utils.data.Dataset):
         classes = [set(cls) for cls in self.dataset["classes_on_image"]]
         ids = self.dataset["id"]
 
-        pairs = itertools.combinations(ids, 2)
-
         # To be a valid pair should have at least one class in common
-        pairs = [(i, j) for i, j in pairs if len(classes[i].intersection(classes[j])) > 0]
-        
+        valid_pairs = lambda x, y: len(classes[x].intersection(classes[y])) > 0
+
+        pairs = []
+        pairs_per_id = defaultdict(int)
+
+        for i, j in itertools.combinations(ids, 2):
+            if not valid_pairs(i, j):
+                continue
+
+            if pairs_per_id[i] < self.num_pairs_per_image:
+                pairs.append((i, j))
+                pairs_per_id[i] += 1
+
+            if pairs_per_id[j] < self.num_pairs_per_image:
+                pairs.append((j, i))
+                pairs_per_id[j] += 1
+
+        if self.num_samples is not None:
+            if self.seed is not None: random.seed(self.seed)
+
+            start_idx = random.randint(0, len(pairs) - self.num_samples)
+            end_idx = start_idx + self.num_samples
+            pairs = pairs[start_idx:end_idx]
+
         return pairs
     
     def __len__(self) -> int:
@@ -161,19 +189,21 @@ def get_in_context_datasets(
     ds_val = load_foodseg103("validation")
 
     train_dataset = FoodSeg103InContextDataset(
-        ds_train, 
-        config, 
-        image_processor, 
-        data_args.mask_ratio, 
-        data_args.random_coloring, 
+        dataset=ds_train, 
+        config=config, 
+        image_processor=image_processor, 
+        mask_ratio=data_args.mask_ratio, 
+        random_coloring=data_args.random_coloring, 
+        num_samples=data_args.num_samples,
         is_train=True
     )
     validation_dataset = FoodSeg103InContextDataset(
-        ds_val, 
-        config, 
-        image_processor, 
-        data_args.mask_ratio, 
-        data_args.random_coloring, 
+        dataset=ds_val, 
+        config=config, 
+        image_processor=image_processor, 
+        mask_ratio=data_args.mask_ratio, 
+        random_coloring=data_args.random_coloring, 
+        num_samples=data_args.num_samples,
         is_train=False
     )
 
@@ -189,22 +219,24 @@ def get_fine_tuning_datasets(
     ds_val = load_foodseg103("validation")
 
     train_dataset = FoodSeg103Dataset(
-        ds_train, 
-        config, 
-        image_processor, 
-        data_args.mask_ratio, 
-        data_args.random_coloring,
-        data_args.num_pairs_per_image,
+        dataset=ds_train, 
+        config=config, 
+        image_processor=image_processor, 
+        mask_ratio=data_args.mask_ratio, 
+        random_coloring=data_args.random_coloring,
+        num_pairs_per_image=data_args.num_pairs_per_image,
+        num_samples=data_args.num_samples,
         is_train=True
     )
 
     validation_dataset = FoodSeg103Dataset(
-        ds_val, 
-        config, 
-        image_processor, 
-        data_args.mask_ratio, 
-        data_args.random_coloring,
-        data_args.num_pairs_per_image,
+        dataset=ds_val, 
+        config=config, 
+        image_processor=image_processor, 
+        mask_ratio=data_args.mask_ratio, 
+        random_coloring=data_args.random_coloring,
+        num_pairs_per_image=data_args.num_pairs_per_image,
+        num_samples=data_args.num_samples,
         is_train=False
     )
 
@@ -275,9 +307,6 @@ def get_in_context_loaders(
     return train_loader, val_loader
     
 if __name__ == "__main__":
-    ds_train = load_foodseg103("train")
-    train_dummy = load_foodseg103("train") # Need the dummy otherwise will recurse infinitely
-
     train_dataset, _ = get_fine_tuning_datasets(
         SegGptConfig.from_pretrained("BAAI/seggpt-vit-large"), 
         SegGptImageProcessor.from_pretrained("BAAI/seggpt-vit-large"),
