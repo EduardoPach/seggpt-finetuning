@@ -8,7 +8,7 @@ from transformers import (
     SegGptForImageSegmentation
 )
 
-from data import get_fine_tuning_datasets, DataTrainingArguments, collate_fn
+from src.data import get_fine_tuning_datasets, DataTrainingArguments, collate_fn
 
 
 def main() -> None:
