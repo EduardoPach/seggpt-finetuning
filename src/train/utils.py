@@ -18,16 +18,19 @@ class KwargsAction(argparse.Action):
         # Initialize or fetch the kwargs dictionary
         if not hasattr(namespace, 'kwargs'):
             setattr(namespace, 'kwargs', {})
+
         kwargs = getattr(namespace, 'kwargs')
+        kwargs = {} if kwargs is None else kwargs
 
         # Parse the key-value pair
         for value in values:
             key, val = value.split('=')
-            kwargs[key] = val
+            kwargs[key] = eval(val)
 
         setattr(namespace, 'kwargs', kwargs)
 
 
+#TODO finish this callback to store the reconstructed images
 class WandbReconstructionCallback(WandbCallback):
     def __init__(
         self,

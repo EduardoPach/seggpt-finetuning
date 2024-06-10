@@ -3,8 +3,7 @@ remove_unused_columns: false
 per_device_train_batch_size: 2
 per_device_eval_batch_size: 2
 num_train_epochs: 1
-report_to: none
-use_cpu: true
+report_to: wandb
 push_to_hub: true
 mask_ratio: 0.75
 random_coloring: false

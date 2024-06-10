@@ -1,15 +1,20 @@
 import os
 import sys
 
-from transformers import Trainer, TrainingArguments, AutoImageProcessor, HfArgumentParser
+from transformers import Trainer, AutoImageProcessor
 
-from train.seggpt_adapter import SegGptAdapter
+from src.train import SegGptAdapter, get_terminal_args, get_config_args
 from src.data import get_in_context_datasets, DataTrainingArguments
 
-def train_seggpt_adapter(training_args: TrainingArguments, data_args: DataTrainingArguments) -> None:
-    """Trains the SegGptAdapter model."""
-    model_id = "BAAI/seggpt-vit-large"
 
+def main() -> None:
+    os.environ["WANDB_PROJECT"] = "seggpt-incontext-tuning"
+    config_path = os.path.join(os.path.dirname(__file__), "config", "config_adapter.yaml")
+
+    args = get_terminal_args()
+    training_args, data_args = get_config_args(args, config_path)
+
+    model_id = "BAAI/seggpt-vit-large"
     model = SegGptAdapter(model_id)
     config = model.seggpt.config
     image_processor = AutoImageProcessor.from_pretrained(model_id)
@@ -17,8 +22,7 @@ def train_seggpt_adapter(training_args: TrainingArguments, data_args: DataTraini
     train_dataset, validation_dataset = get_in_context_datasets(
         config,
         image_processor,
-        data_args.mask_ratio,
-        data_args.random_coloring
+        data_args
     )
 
     trainer = Trainer(
@@ -29,15 +33,6 @@ def train_seggpt_adapter(training_args: TrainingArguments, data_args: DataTraini
     )
 
     trainer.train()
-
-def main() -> None:
-    os.environ["WANDB_PROJECT"] = "seggpt-incontext-tuning"
-
-    parser = HfArgumentParser((TrainingArguments, DataTrainingArguments))
-    config_path = os.path.join(os.path.dirname(__file__), "config", "config_adapter.yaml")
-    training_args, data_args = parser.parse_yaml_file(yaml_file=config_path)
-
-    train_seggpt_adapter(training_args, data_args)
 
 if __name__ == "__main__":
     main()

@@ -202,7 +202,7 @@ def get_in_context_datasets(
         config=config, 
         image_processor=image_processor, 
         mask_ratio=data_args.mask_ratio, 
-        random_coloring=data_args.random_coloring, 
+        random_coloring=False, 
         num_samples=data_args.num_samples,
         is_train=False
     )
@@ -234,7 +234,7 @@ def get_fine_tuning_datasets(
         config=config, 
         image_processor=image_processor, 
         mask_ratio=data_args.mask_ratio, 
-        random_coloring=data_args.random_coloring,
+        random_coloring=False,
         num_pairs_per_image=data_args.num_pairs_per_image,
         num_samples=data_args.num_samples,
         is_train=False

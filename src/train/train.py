@@ -1,22 +1,23 @@
 import os
+from pathlib import Path
 
 from transformers import (
     Trainer,
-    TrainingArguments,
-    HfArgumentParser,
     AutoImageProcessor,
     SegGptForImageSegmentation
 )
 
-from src.data import get_fine_tuning_datasets, DataTrainingArguments, collate_fn
+from src.train import get_config_args, get_terminal_args
+from src.data import get_fine_tuning_datasets, collate_fn
 
 
 def main() -> None:
     os.environ["WANDB_PROJECT"] = "seggpt-fine-tuning"
-    CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config", "config.yaml")
+    config_path = str(Path(__file__).resolve().parent.parent / "config" / "config.yaml")
+    print("using config path: ", config_path)
 
-    parser = HfArgumentParser((DataTrainingArguments, TrainingArguments))
-    data_args, training_args = parser.parse_yaml_file(CONFIG_PATH)
+    args = get_terminal_args()
+    training_args, data_args = get_config_args(args, config_path)
 
     model = SegGptForImageSegmentation.from_pretrained("BAAI/seggpt-vit-large")
     image_processor = AutoImageProcessor.from_pretrained("BAAI/seggpt-vit-large")
