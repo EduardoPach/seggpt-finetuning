@@ -1,5 +1,5 @@
 import argparse
-from typing import Tuple
+from typing import Tuple, Sequence, Optional
 
 from datasets import Dataset
 from transformers.integrations import WandbCallback
@@ -8,7 +8,13 @@ from transformers import Trainer, SegGptImageProcessor, TrainingArguments, HfArg
 from src.data import DataTrainingArguments
 
 class KwargsAction(argparse.Action):
-    def __call__(self, parser, namespace, values, option_string=None):
+    def __call__(
+        self,
+        parser: argparse.ArgumentParser,
+        namespace: argparse.Namespace,
+        values: Sequence[str],
+        option_string: Optional[str] = None
+    ) -> None:
         # Initialize or fetch the kwargs dictionary
         if not hasattr(namespace, 'kwargs'):
             setattr(namespace, 'kwargs', {})
@@ -26,21 +32,21 @@ class WandbReconstructionCallback(WandbCallback):
     def __init__(
         self,
         trainer: Trainer,
-        validation_dataset: Dataset,
+        dataset: Dataset,
         image_processor: SegGptImageProcessor,
         num_samples: int = 1,
-        freq: int = 1
+        freq: int = 100
     ) -> None:
-        super().__inti__()
+        super().__init__()
         self.trainer = trainer
-        self.validation_dataset = validation_dataset
+        self.dataset = dataset
         self.image_processor = image_processor
         self.num_samples = num_samples
         self.freq = freq
 
     def on_evaluate(self, args, state, control, **kwargs):
         super().on_evaluate(args, state, control, **kwargs)
-        if state.epoch % self.freq == 0:
+        if state.global_step % self.freq == 0:
             ...
 
 def get_terminal_args() -> argparse.Namespace:
