@@ -48,9 +48,14 @@ class FoodSeg103InContextDataset(torch.utils.data.Dataset):
         image = sample["image"]
         label = sample["label"]
 
-        bool_masked_pos = None
         if self.is_train:
-            bool_masked_pos = random_masking(num_patches, mask_ratio=self.mask_ratio)
+            bool_masked_pos = random_masking(
+                num_patches=num_patches, 
+                mask_ratio=self.mask_ratio
+            )
+        else:
+            bool_masked_pos = torch.zeros(num_patches, dtype=torch.bool)
+            bool_masked_pos[num_patches // 2 :] = 1
 
         if self.random_coloring:
             palette = random_color_palette(list(range(1, NUM_CLASSES)))
@@ -144,9 +149,14 @@ class FoodSeg103Dataset(torch.utils.data.Dataset):
         prompt_image = prompt_sample["image"]
         prompt_mask = prompt_sample["label"]
 
-        bool_masked_pos = None
         if self.is_train:
-            bool_masked_pos = random_masking(num_patches, mask_ratio=self.mask_ratio)
+            bool_masked_pos = random_masking( 
+                num_patches=num_patches, 
+                mask_ratio=self.mask_ratio
+            )
+        else:
+            bool_masked_pos = torch.zeros(num_patches, dtype=torch.bool)
+            bool_masked_pos[num_patches // 2 :] = 1
 
 
         if self.random_coloring:

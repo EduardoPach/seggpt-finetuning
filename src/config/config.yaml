@@ -5,5 +5,8 @@ per_device_eval_batch_size: 2
 num_train_epochs: 1
 report_to: wandb
 push_to_hub: true
+eval_strategy: steps
+logging_steps: 1
+learning_rate: 0.0005
 mask_ratio: 0.75
 random_coloring: false

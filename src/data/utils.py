@@ -57,13 +57,18 @@ def mask_coloring(mask: Image.Image, palette: Optional[Dict[int, np.array]]=None
     
     return Image.fromarray(colored_mask)
 
-def random_masking(num_patches: int, mask_ratio: float = 0.75) -> torch.BoolTensor:
+def random_masking(num_patches: int, mask_ratio: float = 0.75, is_train: bool = True) -> torch.BoolTensor:
     """Generates a random booled mask with a given ratio of masked patches with shape (num_patches,)."""
+    if not is_train:
+        bool_masked_pos = torch.zeros(num_patches, dtype=torch.bool)
+        bool_masked_pos[num_patches // 2 :] = 1
+        return bool_masked_pos
+
     num_masked_patches = int(num_patches * mask_ratio)
     shuffle_idx = torch.randperm(num_patches)
-    mask = torch.FloatTensor([0] * (num_patches - num_masked_patches) + [1] * num_masked_patches)[shuffle_idx]
-
-    return mask.bool()
+    bool_masked_pos = torch.FloatTensor([0] * (num_patches - num_masked_patches) + [1] * num_masked_patches)[shuffle_idx]
+    
+    return bool_masked_pos.bool()
 
 def collate_fn(batch: List[Dict[str, torch.Tensor]]) -> Dict[str, torch.Tensor]:
     """Collate function for the FoodSeg103 dataset."""
