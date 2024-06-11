@@ -1,6 +1,7 @@
 import argparse
 from typing import Tuple, Sequence, Optional
 
+import wandb
 from datasets import Dataset
 from transformers.integrations import WandbCallback
 from transformers import Trainer, SegGptImageProcessor, TrainingArguments, HfArgumentParser
@@ -61,7 +62,7 @@ def get_config_args(args: argparse.Namespace, config_path: str) -> Tuple[Trainin
     parser = HfArgumentParser((TrainingArguments, DataTrainingArguments))
     training_args, data_args = parser.parse_yaml_file(config_path)
 
-    kwargs = args.kwargs
+    kwargs = args.kwargs if args.kwargs is not None else {}
 
     for key, val in kwargs.items():
         if hasattr(training_args, key):
@@ -70,5 +71,7 @@ def get_config_args(args: argparse.Namespace, config_path: str) -> Tuple[Trainin
             setattr(data_args, key, val)
         else:
             raise ValueError(f"Invalid argument: {key}")
+
+    training_args.run_name = wandb.util.generate_id()
         
     return training_args, data_args

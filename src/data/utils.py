@@ -17,6 +17,8 @@ class DataTrainingArguments:
     random_coloring: bool = field(default=True)
     num_pairs_per_image: Optional[int] = field(default=None)
     num_samples: Optional[int] = field(default=None)
+    num_pairs_per_image_validation: Optional[int] = field(default=None)
+    num_samples_validation: Optional[int] = field(default=None)
 
 def load_foodseg103(split: str) -> Dataset:
     """Loads the FoodSeg103 dataset using the Hugging Face datasets library."""

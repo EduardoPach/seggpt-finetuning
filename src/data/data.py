@@ -213,7 +213,7 @@ def get_in_context_datasets(
         image_processor=image_processor, 
         mask_ratio=data_args.mask_ratio, 
         random_coloring=False, 
-        num_samples=data_args.num_samples,
+        num_samples=data_args.num_samples_validation,
         is_train=False
     )
 
@@ -245,88 +245,9 @@ def get_fine_tuning_datasets(
         image_processor=image_processor, 
         mask_ratio=data_args.mask_ratio, 
         random_coloring=False,
-        num_pairs_per_image=data_args.num_pairs_per_image,
-        num_samples=data_args.num_samples,
+        num_pairs_per_image=data_args.num_pairs_per_image_validation,
+        num_samples=data_args.num_samples_validation,
         is_train=False
     )
 
     return train_dataset, validation_dataset
-
-def get_fine_tuning_loaders(
-    config: SegGptConfig,
-    image_processor: SegGptImageProcessor,
-    data_args: DataTrainingArguments
-) -> Tuple[torch.utils.data.Dataset, torch.utils.data.Dataset]:
-    """Returns the training and validation datasets for the FoodSeg103 for full image fine-tuning."""
-    train_dataset, val_dataset = get_fine_tuning_datasets(
-        config, 
-        image_processor, 
-        data_args
-    )
-
-    train_loader = torch.utils.data.DataLoader(
-        train_dataset, 
-        batch_size=data_args.train_batch_size,
-        num_workers=data_args.num_workers,
-        pin_memory=data_args.pin_memory,
-        shuffle=True, 
-        collate_fn=collate_fn
-    )
-
-    val_loader = torch.utils.data.DataLoader(
-        val_dataset, 
-        batch_size=data_args.validation_batch_size, 
-        num_workers=data_args.num_workers,
-        pin_memory=True,
-        shuffle=False, 
-        collate_fn=collate_fn
-    )
-
-    return train_loader, val_loader
-
-def get_in_context_loaders(
-    config: SegGptConfig,
-    image_processor: SegGptImageProcessor,
-    data_args: DataTrainingArguments
-) -> Tuple[torch.utils.data.Dataset, torch.utils.data.Dataset]:
-    """Returns the training and validation datasets for the FoodSeg103 for in-context training."""
-    train_dataset, val_dataset = get_in_context_datasets(
-        config, 
-        image_processor, 
-        data_args
-    )
-
-    train_loader = torch.utils.data.DataLoader(
-        train_dataset, 
-        batch_size=data_args.train_batch_size,
-        num_workers=data_args.num_workers,
-        pin_memory=data_args.pin_memory,
-        shuffle=True, 
-        collate_fn=collate_fn
-    )
-
-    val_loader = torch.utils.data.DataLoader(
-        val_dataset, 
-        batch_size=data_args.validation_batch_size, 
-        num_workers=data_args.num_workers,
-        pin_memory=data_args.pin_memory,
-        shuffle=False, 
-        collate_fn=collate_fn
-    )
-
-    return train_loader, val_loader
-    
-if __name__ == "__main__":
-    train_dataset, _ = get_fine_tuning_datasets(
-        SegGptConfig.from_pretrained("BAAI/seggpt-vit-large"), 
-        SegGptImageProcessor.from_pretrained("BAAI/seggpt-vit-large"),
-        mask_ratio=0.75,
-        random_coloring=True,
-    )
-
-    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=2, shuffle=True, collate_fn=collate_fn)
-
-
-    for inputs in train_loader:
-        print(inputs)
-        print("here")
